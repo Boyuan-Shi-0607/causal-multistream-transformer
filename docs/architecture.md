@@ -41,11 +41,11 @@ when omitted, the implementation uses the default segment.
 
 RoPE is applied inside attention using `positions`. Every stream must use a
 consistent coordinate system and position dtype. Positions are converted to
-float64 while the sine and cosine factors are calculated, then converted to
-the attention feature dtype. Their absolute value is limited to `1,000,000`;
-subtract a common origin when a source coordinate would exceed that range.
-RoPE changes how attention represents distance; it does not decide which keys
-are visible.
+float32 while the phase, sine, and cosine factors are calculated, then the
+sine and cosine factors are converted to the attention feature dtype. Their
+absolute value is limited to `1,000,000`; subtract a common origin when a
+source coordinate would exceed that range. RoPE changes how attention
+represents distance; it does not decide which keys are visible.
 
 ## Causal attention
 
@@ -99,6 +99,39 @@ and segment IDs must fall within their configured embedding vocabularies.
 - `context_memory`: all context memories concatenated along the sequence axis.
 
 The concatenation order matches the input context vector.
+
+## Optional reconstruction warm-up
+
+The encoder memories can be paired with the utilities in
+`<cmt/pretraining.hpp>`. Mask construction and feature masking happen before
+the encoder forward pass. The original, unmasked features remain the
+reconstruction targets.
+
+One `ReconstructionHead` is reused for all encoded streams. It contains a
+shared normalization and hidden projection followed by one reconstruction
+projection. Reusing the same module instance makes every stream update the
+same head parameters.
+
+For stream `s`, prediction `P_s`, original target `X_s`, boolean mask `M_s`,
+and caller-selected feature set `J`, the loss is
+
+\[
+  L_s =
+  \frac{
+    \sum_{b,t,j \in J} M_{s,b,t}
+      \left(P_{s,b,t,j} - X_{s,b,t,j}\right)^2
+  }{
+    \max\left(1, |J| \sum_{b,t} M_{s,b,t}\right)
+  }.
+\]
+
+Squared error and reduction are accumulated in float32. For a non-empty set of
+stream losses, `mean_stream_loss` returns their arithmetic mean, so each stream
+has equal weight regardless of sequence length or number of masked tokens.
+
+All masking choices and feature indices belong to the caller. The library does
+not assign semantic meaning to a feature column. See
+[pretraining.md](pretraining.md) for API details.
 
 ## What the mask does not guarantee
 

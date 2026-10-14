@@ -32,6 +32,12 @@ key that is unavailable to a query must not change that query's output.
 Changes involving padding should prove that invalid tokens cannot affect valid
 outputs.
 
+Changes to the reconstruction utilities should test deterministic masks,
+valid-token selection, masked-only float32 MSE, equal stream averaging, and
+gradient flow into a single head reused across streams. If mask seeding
+changes, document whether batch reordering changes the result and whether the
+change affects reproducibility across C++ standard-library implementations.
+
 ## Safe fixtures
 
 Only generated or clearly redistributable fixtures belong in this repository.
@@ -42,8 +48,8 @@ data that cannot be redistributed.
 ## Pull requests
 
 A pull request should explain the observable change, why it is needed, and how
-it was tested. Keep commits reviewable. All tests and the synthetic example
-must pass before review.
+it was tested. Keep commits reviewable. All tests and both synthetic
+executables must pass before review.
 
 By submitting a contribution, you agree that it is licensed under the Apache
 License, Version 2.0, used by this project.

@@ -45,5 +45,5 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-      - name: Run synthetic example
+      - name: Run synthetic forward/backward probe
         run: ./build/cmt_synthetic

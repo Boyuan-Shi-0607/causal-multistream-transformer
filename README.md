@@ -39,11 +39,15 @@ cmake -S . -B build \
 cmake --build build -j2
 ctest --test-dir build --output-on-failure
 ./build/cmt_synthetic
+./build/cmt_train_synthetic --steps 120
 ```
 
-The synthetic executable performs a forward and backward pass on generated
-signals. It is a gradient and integration check, not a training recipe or a
-benchmark for a real task.
+`cmt_synthetic` performs a forward and backward pass on generated signals.
+`cmt_train_synthetic` runs a small CPU learning check with AdamW, gradient
+clipping, and a fixed synthetic validation set. It reports the initial and
+final validation errors and their ratio; it does not read or write datasets or
+weights. Both programs are integration checks rather than benchmarks for a
+real task.
 
 ## Public API
 
@@ -78,6 +82,47 @@ See [the architecture notes](docs/architecture.md) and
 [the data contract](docs/data_contract.md) before adapting the encoder to a
 new source of sequences.
 
+## Masked reconstruction warm-up
+
+The optional pretraining utilities are declared in
+`<cmt/pretraining.hpp>`. They provide reproducible span masks within a fixed
+C++ runtime and toolchain, feature masking, one reconstruction head that can
+be shared across every stream, and an MSE loss evaluated only at masked
+positions and caller-selected feature columns.
+
+```cpp
+cmt::SpanMaskConfig mask_config;
+mask_config.probabilities = mask_probabilities;
+mask_config.min_span = min_span;
+mask_config.max_span = max_span;
+mask_config.masked_feature_indices = masked_feature_indices;
+mask_config.indicator_feature_index = indicator_feature_index;
+
+const double probability = cmt::sample_mask_probability(
+    mask_config, seed, step);
+const auto mask = cmt::make_span_mask(
+    stream.valid,
+    sample_ids,
+    probability,
+    mask_config.min_span,
+    mask_config.max_span,
+    seed,
+    step,
+    stream_key);
+const auto masked_stream = cmt::mask_span_features(
+    stream, mask, mask_config);
+```
+
+The caller supplies all feature indices and masking parameters. A single
+`cmt::ReconstructionHead` instance should be applied to each encoded stream so
+that its parameters receive gradients from every stream. Per-stream masked
+MSE values can be combined with `cmt::mean_stream_loss` for equal stream
+weighting. Reconstruction columns should be a subset of the cleared input
+columns and must exclude the indicator column.
+
+See [the pretraining notes](docs/pretraining.md) for the complete contract and
+determinism boundary.
+
 ## Causality boundary
 
 The encoder enforces attention masks from `available_at` metadata: a query may
@@ -92,8 +137,9 @@ the encoder sees it.
 
 ## Scope
 
-The project is an encoder library. It does not distribute datasets, model
-weights, task-specific prediction heads, or a production training system.
+The project contains an encoder and generic masked-reconstruction utilities.
+It does not distribute datasets, model weights, task-specific heads, or an
+end-to-end training system.
 
 ## Contributing
 

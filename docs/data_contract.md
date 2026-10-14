@@ -39,8 +39,9 @@ computation or model weights use reduced precision.
 Valid position values must be finite and have absolute value no greater than
 `1,000,000`. Choose a numeric unit that represents all streams without
 ambiguous rounding, and use the same origin and unit for every stream in a
-forward pass. Position values are converted to float64 for RoPE sine and cosine
-calculation, then converted to the attention feature dtype.
+forward pass. Position values are converted to float32 for RoPE phase, sine,
+and cosine calculation; the sine and cosine factors are then converted to the
+attention feature dtype.
 
 ## Position and availability are different
 
@@ -99,3 +100,50 @@ their stored representation is zeroed.
 
 Examples and tests in this repository use generated signals only. No external
 dataset or pretrained weight is required by the data contract.
+
+## Reconstruction inputs
+
+The masked-reconstruction utilities add the following inputs:
+
+| Value | Shape | Contract |
+| --- | --- | --- |
+| `mask` | `[B, L]` | Boolean positions selected for reconstruction |
+| `sample_ids` | `[B]` | Stable int32 or int64 identifiers used for mask seeding |
+| `prediction` | `[B, L, F_prediction]` | Floating-point reconstruction output |
+| `target` | `[B, L, F_target]` | Original, unmasked floating-point features |
+| `feature_indices` | caller-owned vector | Columns selected for masking or loss |
+
+The mask shape must match its stream. Feature-index vectors must be non-empty,
+unique, and in range; the indicator index must be in range and distinct from
+the masked input columns. Prediction and target batch and length dimensions
+must match, and every reconstruction index must exist in both feature
+dimensions. The loss mask must share their device. The loss converts selected
+predictions and targets to float32 before squared-error reduction.
+
+`make_span_mask` selects only valid tokens. Its result is reproducible within a
+fixed C++ standard-library implementation for a fixed validity mask, sample
+IDs, probability, span bounds, seed, step, stream key, and batch layout. Batch
+row index is part of the seed derivation, so
+reordering a batch can change its masks even when the sample IDs are unchanged.
+Callers that need identical masks across runs must preserve batch ordering as
+well as the other inputs. Exact mask equality is guaranteed only within the
+same C++ standard-library and random-distribution implementation; the random
+engine is standardized, but distribution mapping and shuffle behavior may
+differ across implementations.
+
+`mask_span_features` clones the feature tensor, clears the caller-selected
+feature columns at masked tokens, and replaces the full indicator column with
+the boolean mask converted to the feature dtype. Other stream metadata is
+preserved. Its feature tensor, validity tensor, and mask must share one device.
+Because `make_span_mask` returns a CPU mask, either apply masking while the
+stream is on CPU or move the mask to the stream device first. Keep the original
+stream as the reconstruction target; using the already masked features as the
+target would change the objective.
+
+Reconstruction feature indices should be a subset of the cleared input
+columns and must not include the indicator column. This relationship belongs
+to the caller's tensor contract because masking and loss are separate APIs.
+Any input column left visible, including a derived channel, is also a caller
+choice and may make a selected target directly recoverable. Validation from
+this objective measures reconstruction of hidden columns at selected tokens;
+it does not measure prediction of later tokens.

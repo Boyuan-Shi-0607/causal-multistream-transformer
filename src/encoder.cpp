@@ -84,17 +84,17 @@ std::pair<torch::Tensor, torch::Tensor> rotary_factors(
     double base,
     torch::ScalarType output_type) {
   validate_position_values(positions, "positions");
-  // Integer positions are converted directly to float64. This avoids first
-  // rounding large relative offsets to float32 and losing adjacent positions.
-  const auto position64 = positions.to(torch::kFloat64);
+  // Keep positions, frequencies, and trigonometry in float32 even when the
+  // attention tensors use reduced precision. Use a common relative origin.
+  const auto position32 = positions.to(torch::kFloat32);
   const auto options = torch::TensorOptions()
                            .device(positions.device())
-                           .dtype(torch::kFloat64);
+                           .dtype(torch::kFloat32);
   auto index = torch::arange(0, head_dim, 2, options);
   auto inverse_frequency = torch::pow(
       torch::full_like(index, base),
       -index / static_cast<double>(head_dim));
-  auto phase = position64.unsqueeze(-1) *
+  auto phase = position32.unsqueeze(-1) *
                inverse_frequency.view({1, 1, -1});
   auto repeated = torch::repeat_interleave(phase, 2, -1);
   return {
