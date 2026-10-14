@@ -1,0 +1,31 @@
+cmake_minimum_required(VERSION 3.22)
+project(causal_multistream_transformer VERSION 0.1.0 LANGUAGES CXX)
+
+find_package(Torch REQUIRED)
+
+add_library(cmt_encoder src/encoder.cpp)
+add_library(cmt::encoder ALIAS cmt_encoder)
+target_compile_features(cmt_encoder PUBLIC cxx_std_17)
+target_include_directories(cmt_encoder PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_link_libraries(cmt_encoder PUBLIC "${TORCH_LIBRARIES}")
+separate_arguments(CMT_TORCH_CXX_FLAGS NATIVE_COMMAND "${TORCH_CXX_FLAGS}")
+target_compile_options(cmt_encoder PUBLIC ${CMT_TORCH_CXX_FLAGS})
+set_target_properties(cmt_encoder PROPERTIES CXX_EXTENSIONS OFF)
+
+option(CMT_BUILD_EXAMPLES "Build the synthetic sequence example" ON)
+if(CMT_BUILD_EXAMPLES)
+  add_executable(cmt_synthetic examples/synthetic.cpp)
+  target_link_libraries(cmt_synthetic PRIVATE cmt::encoder)
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(cmt_test_encoder tests/test_encoder.cpp)
+  target_link_libraries(cmt_test_encoder PRIVATE cmt::encoder)
+  add_test(NAME encoder COMMAND cmt_test_encoder)
+
+  add_executable(cmt_test_attention tests/test_attention.cpp)
+  target_link_libraries(cmt_test_attention PRIVATE cmt::encoder)
+  add_test(NAME attention COMMAND cmt_test_attention)
+  set_tests_properties(encoder attention PROPERTIES TIMEOUT 120)
+endif()
